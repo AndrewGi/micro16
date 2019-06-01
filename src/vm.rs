@@ -25,7 +25,7 @@ pub struct VM<'a> {
     name: &'a str,
     settings: VMSettings,
 
-    memory_space: SparseAddressSpace<'a, Address16>,
+    memory_space: SparseAddressSpace<Address16>,
     regs: Regs,
 
 }
