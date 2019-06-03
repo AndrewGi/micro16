@@ -1,19 +1,19 @@
 use std;
-use crate::memory::MemoryError::OutOfBounds;
-use std::ops::Range;
-use std::slice::{Iter, IterMut};
+use std::ops::{Range, Add};
 
 pub enum MemoryError {
     OutOfBounds,
     InvalidAccess,
     ReadOnly,
+    Overflow,
 }
-trait AddressType: Clone + Copy + Into<usize> + From<usize> + std::ops::Sub<Output=Self> + std::ops::Add<Output=Self> + PartialEq + PartialOrd {}
+trait AddressType: ::num::Unsigned + Into<usize> + Clone + Ord + Sized +
+                ::num::traits::FromPrimitive + ::num::traits::CheckedAdd + ::num::traits::CheckedSub {}
 impl AddressType for u16 {}
 pub trait AddressSpace<Address: AddressType> {
-    fn size(&self) -> usize;
+    fn size(&self) -> Address;
     fn get_view(&self, range: Range<Address>) -> Result<MemoryView<'_, Address>, MemoryError> where Self: Sized {
-        if range.end.into() > self.size() {
+        if range.end > self.size() {
             Err(MemoryError::OutOfBounds)
         } else {
             Ok(MemoryView{range, parent: self})
@@ -21,17 +21,19 @@ pub trait AddressSpace<Address: AddressType> {
     }
     fn read_bytes(&self, range: Range<Address>) -> Result<&[u8], MemoryError>;
     fn read_byte(&self, address: Address) -> Result<u8, MemoryError> {
-        Ok(self.read_bytes(Range{start: address, end: Address::from(address.into()+1)})?[0])
+        Ok(self.read_bytes(Range{start: address, end: address + Address::one()})?[0])
     }
 }
 pub trait AddressSpaceMut<Address: AddressType>: AddressSpace<Address> {
-
+    fn as_immutable(&self) -> &AddressSpace<Address> where AddressSpace<Address>: Sized {
+        self as &AddressSpace<Address>
+    }
     fn write_bytes(&mut self, addr: Address, bytes: &[u8]) -> Result<(), MemoryError>;
     fn write_byte(&mut self, addr: Address, byte: u8) -> Result<(), MemoryError> {
         self.write_bytes(addr, &[byte])
     }
     fn get_mut_view(&mut self, range: Range<Address>) -> Result<MemoryViewMut<Address>, MemoryError>  where Self: Sized {
-        if range.end.into() > self.size() {
+        if range.end > self.size() {
             Ok(MemoryViewMut{range, parent: self})
         } else {
             Err(MemoryError::OutOfBounds)
@@ -44,41 +46,42 @@ pub struct MemoryView<'a, Address: AddressType> {
 }
 pub struct MemoryViewMut<'a, Address: AddressType> {
     range: Range<Address>,
-    parent: &'a mut AddressSpaceMut<Address>
+    parent: &'a mut dyn AddressSpaceMut<Address>
 }
 impl<'a, Address: AddressType> AddressSpace<Address> for MemoryView<'a, Address> {
-    fn size(&self) -> usize {
-        (self.range.end - self.range.start).into()
+    fn size(&self) -> Address {
+        (self.range.end - self.range.start)
     }
 
     fn read_bytes(&self, range: Range<Address>) -> Result<&[u8], MemoryError> {
-        if self.range.start+range.end > self.range.end {
+        if self.range.start.clone()+range.end.clone() > self.range.end {
             Err(MemoryError::OutOfBounds)
         } else {
-            self.parent.read_bytes(Range {end: self.range.start+range.end, ..range })
+            self.parent.read_bytes(Range {end: self.range.start.clone()+range.end.clone(), ..range })
         }
     }
 }
 impl<'a, Address: AddressType> AddressSpace<Address> for MemoryViewMut<'a, Address> {
-    fn size(&self) -> usize {
-        (self.range.end - self.range.start).into()
+    fn size(&self) -> Address {
+        (self.range.end - self.range.start)
     }
 
     fn read_bytes(&self, range: Range<Address>) -> Result<&[u8], MemoryError> {
-        if self.range.start+range.end > self.range.end {
+        if &self.range.start.checked_add(&range.end).ok_or(MemoryError::Overflow)? > &self.range.end {
             Err(MemoryError::OutOfBounds)
         } else {
-            self.parent.read_bytes(Range {end: self.range.start+range.end, ..range })
+            self.parent.read_bytes(Range {end: self.range.start.clone()+range.end.clone(), ..range })
         }
     }
 }
 impl<'a, Address: AddressType> AddressSpaceMut<Address> for MemoryViewMut<'a, Address> {
 
     fn write_bytes(&mut self, addr: Address, bytes: &[u8]) -> Result<(), MemoryError> {
-        if self.range.start.into()+bytes.len() > self.range.end.into() {
+        let end = addr.clone() + self.range.start.clone()+Address::from_usize(bytes.len()).ok_or(MemoryError::Overflow)?;
+        if &end > &self.range.end {
             Err(MemoryError::OutOfBounds)
         } else {
-            self.parent.write_bytes(self.range.start+addr, bytes)
+            self.parent.write_bytes(self.range.start.clone()+addr.clone(), bytes)
         }
     }
 }
@@ -88,11 +91,11 @@ pub struct DenseStaticMemory {
     data: Vec<u8>
 }
 impl DenseStaticMemory {
-    pub fn new(size: usize) -> DenseStaticMemory {
-        DenseStaticMemory { data: vec![0; size] }
+    pub fn new<Address: AddressType>(size: Address) -> DenseStaticMemory {
+        DenseStaticMemory { data: vec![0; size.into()] }
     }
-    pub fn size(&self) -> usize {
-        self.data.len()
+    pub fn size<Address: AddressType>(&self) -> Address {
+        Address::from_usize(self.data.len()).unwrap()
     }
     pub fn as_slice(&self) -> &[u8] {
         self.data.as_slice()
@@ -102,12 +105,12 @@ impl DenseStaticMemory {
     }
 }
 impl<'a, Address: AddressType> AddressSpace<Address> for DenseStaticMemory {
-    fn size(&self) -> usize {
+    fn size(&self) -> Address {
         self.size()
     }
 
     fn read_bytes(&self, range: Range<Address>) -> Result<&[u8], MemoryError> {
-        if range.end.into() < self.size() {
+        if range.end < self.size() {
             Ok(&self.data[Range{start: range.start.into(), end:range.end.into()}])
         } else {
             Err(MemoryError::OutOfBounds)
@@ -116,28 +119,29 @@ impl<'a, Address: AddressType> AddressSpace<Address> for DenseStaticMemory {
 }
 impl<'a, Address: AddressType> AddressSpaceMut<Address> for DenseStaticMemory {
     fn write_bytes(&mut self, address: Address, bytes: &[u8]) -> Result<(), MemoryError> {
-        if address.into() + bytes.len() < self.size() {
+        if Address::from_usize(bytes.len()).ok_or(MemoryError::Overflow)? < self.size() {
             Ok(self.data[address.into()..bytes.len()+address.into()].clone_from_slice(bytes))
         } else {
             Err(MemoryError::OutOfBounds)
         }
     }
 }
-pub struct SparseAddressSpace< Address: AddressType> {
-    spaces: Vec<(Address, Box<dyn AddressSpace<Address>>)>,
-    size: usize,
+pub struct SparseAddressSpace<Address: AddressType> {
+    spaces: Vec<(Address, Box<dyn AddressSpaceMut<Address>>)>,
+    size: Address,
 }
+#[derive(Debug, Clone)]
 struct OffsetAddressSpace<'a, Address: AddressType> {
     offset: Address,
-    space: &'a AddressSpace<Address>
+    space: &'a dyn AddressSpace<Address>
 }
+#[derive(Debug, Clone)]
 struct OffsetAddressSpaceMut<'a, Address: AddressType> {
     offset: Address,
-    space: &'a mut AddressSpace<Address>
+    space: &'a mut AddressSpaceMut<Address>
 }
-
-impl<'a, Address> SparseAddressSpace<Address> {
-    pub fn spaces_iter(&self) -> impl Iterator<Item=OffsetAddressSpace<Address>> {
+impl<'a, Address: AddressType> SparseAddressSpace<Address> {
+    pub fn spaces_iter(&self) -> impl Iterator<Item=OffsetAddressSpace<Address>>  {
         self.spaces.iter().map(|space| {
             OffsetAddressSpace { offset: space.0, space: (space.1).as_ref()}
         })
@@ -149,33 +153,32 @@ impl<'a, Address> SparseAddressSpace<Address> {
     }
     pub fn find_space(&self, containing_address: Address) -> Option<&OffsetAddressSpace<Address>> {
         for space in self.spaces_iter() {
-            if (space.offset.into()..space.offset.into()+space.space.size()).contains(containing_address) {
+            if (space.offset..space.offset.checked_add(&space.space.size()).unwrap_or(space.offset)).contains(&containing_address) {
                 return Some(&space);
             }
         }
         None
     }
     pub fn find_space_mut(&mut self, containing_address: Address) -> Option<&mut OffsetAddressSpaceMut<Address>> {
-        for space in self.spaces_iter_mut() {
-            if ((space.0)..(space.0)+(space.1).size()).contains(containing_address) {
-                return Some(&space);
+        for mut space in self.spaces_iter_mut() {
+            if (space.offset..space.offset.checked_add(&space.space.size()).unwrap_or(space.offset)).contains(&containing_address) {
+                return Some(&mut space);
             }
         }
         None
     }
 }
 impl<'a, Address: AddressType> AddressSpace<Address> for SparseAddressSpace<Address> {
-    fn size(&self) -> usize {
+    fn size(&self) -> Address {
         self.size
     }
 
     fn read_bytes(&self, range: Range<Address>) -> Result<&[u8], MemoryError> {
         let space = self.find_space(range.start).ok_or(MemoryError::InvalidAccess)?;
-        let start = space.0;
-        if range.end > space.0 + (space.1).size() {
+        if range.end > space.offset.checked_add(&space.space.size()).ok_or(MemoryError::Overflow)? {
            Err(MemoryError::InvalidAccess)
         } else {
-            (space.1).read_bytes(range.start-start..range.end-start)
+            space.space.read_bytes(range.start.clone()-space.offset.clone()..range.end.clone()-space.offset.clone())
         }
     }
 }
@@ -183,10 +186,12 @@ impl<'a, Address: AddressType> AddressSpaceMut<Address> for SparseAddressSpace<A
 
     fn write_bytes(&mut self, address: Address, bytes: &[u8]) -> Result<(), MemoryError> {
         let mut space =  self.find_space_mut(address).ok_or(MemoryError::InvalidAccess)?;
-        if &address + bytes.len() > &space.offset + space.space.size() {
+        let start = address.clone() - space.offset.clone();
+        let end = start.clone()+Address::from_usize(bytes.len()).ok_or(MemoryError::Overflow)?;
+        if end > space.offset.checked_add(&space.space.size()).ok_or(MemoryError::Overflow)? {
             Err(MemoryError::InvalidAccess)
         } else {
-            space.space.write_bytes(address-&space.offset, bytes)
+            space.space.write_bytes(start, bytes)
         }
     }
 }
