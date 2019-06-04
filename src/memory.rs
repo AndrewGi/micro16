@@ -1,6 +1,7 @@
 use std;
-use std::ops::{Range, Add};
-
+use std::ops::{Range};
+use std::any::Any;
+use downcast_rs;
 pub enum MemoryError {
     OutOfBounds,
     InvalidAccess,
@@ -10,7 +11,7 @@ pub enum MemoryError {
 trait AddressType: ::num::Unsigned + Into<usize> + Clone + Ord + Sized +
                 ::num::traits::FromPrimitive + ::num::traits::CheckedAdd + ::num::traits::CheckedSub {}
 impl AddressType for u16 {}
-pub trait AddressSpace<Address: AddressType> {
+pub trait AddressSpace<'a, Address: AddressType>: ::downcast_rs::Downcast {
     fn size(&self) -> Address;
     fn get_view(&self, range: Range<Address>) -> Result<MemoryView<'_, Address>, MemoryError> where Self: Sized {
         if range.end > self.size() {
@@ -24,15 +25,16 @@ pub trait AddressSpace<Address: AddressType> {
         Ok(self.read_bytes(Range{start: address, end: address + Address::one()})?[0])
     }
 }
+downcast_rs::impl_downcast!(AddressSpace<Address> where Address: AddressType);
 pub trait AddressSpaceMut<Address: AddressType>: AddressSpace<Address> {
-    fn as_immutable(&self) -> &AddressSpace<Address> where AddressSpace<Address>: Sized {
-        self as &AddressSpace<Address>
+    fn as_immutable(&self) -> &dyn AddressSpace<Address> {
+
     }
     fn write_bytes(&mut self, addr: Address, bytes: &[u8]) -> Result<(), MemoryError>;
     fn write_byte(&mut self, addr: Address, byte: u8) -> Result<(), MemoryError> {
         self.write_bytes(addr, &[byte])
     }
-    fn get_mut_view(&mut self, range: Range<Address>) -> Result<MemoryViewMut<Address>, MemoryError>  where Self: Sized {
+    fn get_mut_view(&mut self, range: Range<Address>) -> Result<MemoryViewMut<Address>, MemoryError> {
         if range.end > self.size() {
             Ok(MemoryViewMut{range, parent: self})
         } else {
@@ -143,7 +145,7 @@ struct OffsetAddressSpaceMut<'a, Address: AddressType> {
 impl<'a, Address: AddressType> SparseAddressSpace<Address> {
     pub fn spaces_iter(&self) -> impl Iterator<Item=OffsetAddressSpace<Address>>  {
         self.spaces.iter().map(|space| {
-            OffsetAddressSpace { offset: space.0, space: (space.1).as_ref()}
+            OffsetAddressSpace { offset: space.0, space:  (space.1).as_ref().as_immutable()}
         })
     }
     pub fn spaces_iter_mut(&mut self) -> impl Iterator<Item = OffsetAddressSpaceMut<Address>> {
@@ -170,7 +172,7 @@ impl<'a, Address: AddressType> SparseAddressSpace<Address> {
 }
 impl<'a, Address: AddressType> AddressSpace<Address> for SparseAddressSpace<Address> {
     fn size(&self) -> Address {
-        self.size
+        self.size.clone()
     }
 
     fn read_bytes(&self, range: Range<Address>) -> Result<&[u8], MemoryError> {
