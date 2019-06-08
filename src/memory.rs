@@ -25,7 +25,6 @@ pub trait AddressSpace<'a, Address: AddressType>: ::downcast_rs::Downcast {
         Ok(self.read_bytes(Range{start: address, end: address + Address::one()})?[0])
     }
 }
-downcast_rs::impl_downcast!(AddressSpace<Address> where Address: AddressType);
 pub trait AddressSpaceMut<Address: AddressType>: AddressSpace<Address> {
     fn as_immutable(&self) -> &dyn AddressSpace<Address> {
 
