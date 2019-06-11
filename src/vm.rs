@@ -27,8 +27,9 @@ pub struct VM<'a> {
 
     memory_space: SparseAddressSpace<Address16>,
     regs: Regs,
-
 }
 impl<'a> VM<'a> {
+    pub fn step() {
 
+    }
 }

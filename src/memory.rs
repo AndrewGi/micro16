@@ -175,7 +175,7 @@ impl<'a, Address: AddressType> AddressSpace<Address> for SparseAddressSpace<Addr
         }
     }
     fn write_bytes(&mut self, address: Address, bytes: &[u8]) -> Result<(), MemoryError> {
-        let mut space =  self.find_space_mut(address.clone()).ok_or(MemoryError::InvalidAccess)?;
+        let space =  self.find_space_mut(address.clone()).ok_or(MemoryError::InvalidAccess)?;
         let start = address.clone() - space.offset.clone();
         let end = start.clone()+Address::from_usize(bytes.len()).ok_or(MemoryError::Overflow)?;
         if end > space.offset.checked_add(&space.space.size()).ok_or(MemoryError::Overflow)? {

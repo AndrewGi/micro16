@@ -1,5 +1,5 @@
 extern crate num;
-//mod bits;
+mod bits;
 mod vm;
 mod memory;
-//mod instructions;
+mod instructions;
