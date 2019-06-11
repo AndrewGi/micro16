@@ -9,7 +9,7 @@ trait ShiftOps : std::ops::Shl + std::ops::ShlAssign + std::ops::Shr + std::ops:
 trait BitOps : std::ops::Not + BitAnd + BitAndAssign + BitOr + BitOrAssign + BitXor + BitXorAssign + Sized {
 
 }
-trait Bits<'a>: Clone + BitOps + ShiftOps {
+trait Bits<'a>: Clone + BitOps + ShiftOps + Default {
     fn byte_len(&self) -> usize;
     fn bit_len(&self) -> usize {
         self.byte_len()*8
@@ -94,11 +94,21 @@ impl<'a> BitScanner<'a> {
     pub fn bits_left(&self) -> usize {
         self.len() - self.pos()
     }
+    fn bits_left_in_current_byte(&self) -> usize {
+        self.current_pos_in_byte() - 8
+    }
     pub fn atleast_n_bits_left(&self, n: usize) -> bool {
         self.bits_left() >= n
     }
     fn current_pos_in_byte(&self) -> usize {
         self.pos() % 8
+    }
+    fn current_byte(&self) -> Option<u8> {
+        if !self.atleast_n_bits_left(8) {
+            None
+        } else {
+            Some(self.bytes[self.byte_pos()])
+        }
     }
     fn is_aligned(&self) -> bool {
         self.current_pos_in_byte() == 0
@@ -110,6 +120,58 @@ impl<'a> BitScanner<'a> {
             let b = self.bytes[self.byte_pos()];
             self.bit_position += 8;
             Some(b)
+        }
+    }
+    pub fn next_byte(&mut self) -> Option<u8> {
+        if !self.atleast_n_bits_left(8) {
+            None
+        } else if self.is_aligned() {
+            self.next_byte_aligned()
+        } else {
+            let byte_pos = self.byte_pos();
+            let mut out: u8 = self.current_byte()? >> byte_pos;
+            self.bit_position += 8-byte_pos;
+            out |= self.current_byte()? << byte_pos;
+            self.bit_position += byte_pos;
+            Some(out)
+        }
+    }
+    fn next_sub_byte_aligned(&mut self, amount: usize) -> Option<u8> {
+        if amount >= 8 || !self.is_aligned() || !self.atleast_n_bits_left(amount) {
+            None
+        } else {
+            let out: u8 = self.current_byte()? & make_mask::<u8>(amount);
+            self.bit_position += amount;
+            Some(out)
+        }
+    }
+    fn rest_of_bits_in_current_byte(&mut self) -> u8 {
+        let byte_pos = self.current_pos_in_byte();
+        let out = self.current_byte().unwrap_or(0) >> byte_pos;
+        self.bit_position += byte_pos;
+        out
+    }
+    fn next_sub_byte(&mut self, amount: usize) -> Option<u8> {
+        if amount == 0 ||amount >= 8 || !self.atleast_n_bits_left(amount) {
+            None
+        } else if self.is_aligned() {
+            self.next_sub_byte_aligned(amount)
+        } else {
+            let rest_count = self.bits_left_in_current_byte();
+            let mut out = self.rest_of_bits_in_current_byte();
+            out |= self.next_sub_byte_aligned(amount-rest_count)? << rest_count;
+            Some(out)
+        }
+    }
+    pub fn collect_bits<OutT>(&mut self, amount: usize) -> Option<OutT> where OutT: for<'b> Bits<'b> {
+        if std::mem::size_of::<OutT>() < amount {
+            debug_assert!(false, "trying to collect more bits than the type can contain");
+            None
+        } else if !self.atleast_n_bits_left(amount)  {
+            None
+        } else {
+            let out: OutT =
+
         }
     }
 }
