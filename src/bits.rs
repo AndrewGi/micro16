@@ -170,7 +170,10 @@ impl<'a> BitScanner<'a> {
         } else if !self.atleast_n_bits_left(amount)  {
             None
         } else {
-            let out: OutT =
+            let out = self.
+            while amount>=8 {
+
+            }
 
         }
     }

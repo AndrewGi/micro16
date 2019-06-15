@@ -1,11 +1,14 @@
 use std;
 use std::ops::{Range, Add};
 use std::any::Any;
+use crate::instructions::RegsCode::SP;
+
 pub enum MemoryError {
     OutOfBounds,
     InvalidAccess,
     ReadOnly,
     Overflow,
+    Overlap,
 }
 pub trait AddressType: ::num::Unsigned + Into<usize> + Clone + Ord + Sized +
                 ::num::traits::FromPrimitive + ::num::traits::CheckedAdd + ::num::traits::CheckedSub {}
@@ -133,8 +136,29 @@ struct OffsetAddressSpaceMut<'a, Address: AddressType> {
     offset: Address,
     space: &'a mut dyn AddressSpace<Address>
 }
+fn does_overlap<Address: AddressType>(first: &dyn AddressSpace<Address>, second: (Address, &dyn AddressSpace<Address>)) -> bool {
+    true
+}
 impl<'a, Address: AddressType> SparseAddressSpace<Address> {
-    pub fn spaces_iter<'b>(&'b self) -> impl Iterator<Item=OffsetAddressSpace<'b, Address>>  {
+    pub fn new(size: Address) -> SparseAddressSpace<Address> {
+        SparseAddressSpace {
+            spaces: Vec::with_capacity(4),
+            size
+        }
+    }
+    pub fn add_space(&mut self, offset: Address, new_space: Box<dyn AddressSpace<Address>>) -> Result<(), MemoryError>  {
+        if offset.clone()+new_space.as_ref().size() > self.size {
+            return Err(MemoryError::Overflow)
+        }
+        for space in self.spaces_iter() {
+            if does_overlap(space, new_space) {
+                return Err(MemoryError::Overlap)
+            }
+        }
+        self.spaces.push((offset, new_space));
+        Ok(())
+    }
+    pub fn spaces_iter(&self) -> impl Iterator<Item=OffsetAddressSpace<Address>>  {
         self.spaces.iter().map(|space| {
             OffsetAddressSpace { offset: (space.0).clone(), space:  (space.1).as_ref()}
         })
