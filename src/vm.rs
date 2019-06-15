@@ -1,4 +1,4 @@
-use crate::memory::SparseAddressSpace;
+use crate::memory::{SparseAddressSpace, DenseStaticMemory, MemoryError};
 use std::ops::Add;
 
 type Reg16 = u16;
@@ -37,16 +37,28 @@ pub struct VM<'a> {
     regs: Regs,
 }
 impl<'a> VM<'a> {
-    pub fn new(name: &'a str, settings: VMSettings) -> VM<'a> {
-        VM {
-            name: name,
-            memory_space: Spare,
+    pub fn new(name: &'a str, settings: VMSettings) -> Result<VM<'a>, MemoryError> {
+        let mut space = SparseAddressSpace::new(Address16::max_value());
+        let ram = DenseStaticMemory::new(settings.ram_size.clone());
+        space.add_space(settings.ram_address, Box::new(ram))?;
+        Ok(VM {
+            name,
+            memory_space: space,
             regs: Regs {pc: settings.start_pc, ..Default()},
-            settings: settings,
-        }
-
+            settings,
+        })
     }
     pub fn step() {
+
+    }
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_create() {
+        let vm = VM::new("test", VMSettings::default())?;
 
     }
 }

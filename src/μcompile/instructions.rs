@@ -1,5 +1,6 @@
 
 use crate::bits;
+
 #[repr(u8)]
 pub enum Opcode {
     Nop = 0,
@@ -19,6 +20,28 @@ pub enum Opcode {
     Syscall = 14,
     Int = 15,
 }
+impl ToString for Opcode {
+    fn to_string(&self) -> String {
+        match self {
+            Opcode::Nop => "nop",
+            Opcode::Mov => "mov",
+            Opcode::Add => "add",
+            Opcode::Sub => "sub",
+            Opcode::IMul => "imul",
+            Opcode::IDiv => "idiv",
+            Opcode::Cmp => "cmp",
+            Opcode::Jmp => "jmp",
+            Opcode::And => "and",
+            Opcode::Or => "or",
+            Opcode::Xor => "xor",
+            Opcode::Not => "not",
+            Opcode::Call => "call",
+            Opcode::Ret => "ret",
+            Opcode::Syscall => "syscall",
+            Opcode::Int => "int"
+        }.to_string()
+    }
+}
 const OPCODE_BITS: usize = 4;
 impl Default for Opcode {
     fn default() -> Self {
@@ -37,6 +60,20 @@ pub enum OpLocationCode {
     TwoLoadRegs      =0b111,
 
 }
+impl ToString for OpLocationCode {
+    fn to_string(&self) -> String {
+        match self {
+            OpLocationCode::NoLocation => "__",
+            OpLocationCode::TwoConstants => "cc",
+            OpLocationCode::RawRegAndConstant => "rc",
+            OpLocationCode::ConstantAndRawReg => "cr",
+            OpLocationCode::TwoRawRegs => "rr",
+            OpLocationCode::LoadRegAndRawReg => "lr",
+            OpLocationCode::RawRegAndLoadReg => "rl",
+            OpLocationCode::TwoLoadRegs => "ll",
+        }.to_string()
+    }
+}
 const OPLOCATION_BITS: usize = 3;
 impl Default for OpLocationCode {
     fn default() -> Self {
@@ -44,7 +81,7 @@ impl Default for OpLocationCode {
     }
 }
 #[repr(u8)]
-pub enum RegsCode {
+pub enum Reg {
     NoReg = 0,
     R1 = 1,
     R2 = 2,
@@ -55,20 +92,35 @@ pub enum RegsCode {
     Flags = 7
 }
 const REGCODE_BITS: usize = 3;
-impl Default for RegsCode {
+impl ToString for Reg {
+    fn to_string(&self) -> String {
+        match self {
+            Reg::NoReg => "_",
+            Reg::R1 => "R1",
+            Reg::R2 => "R2",
+            Reg::R3 => "R3",
+            Reg::R4 => "R4",
+            Reg::SP => "SP",
+            Reg::IP => "IP",
+            Reg::Flags => "FLAGS"
+        }.to_string()
+    }
+}
+
+impl Default for Reg {
     fn default() -> Self {
-        RegsCode::NoReg
+        Reg::NoReg
     }
 }
 #[derive(Default)]
 pub struct DecodedOperation {
     opcode: Opcode,
     args_format: OpLocationCode,
-    output_reg: RegsCode,
-    arg1: RegsCode,
-    arg2: RegsCode,
+    output_reg: Reg,
+    arg1: Reg,
+    arg2: Reg,
     arg1_constant: Option<u16>,
-    arg2_constnat: Option<u16>,
+    arg2_constant: Option<u16>,
 }
 const OPERATION_SIZE: usize = 2 + 2 + 2;
 
@@ -86,8 +138,8 @@ impl OpLocationCode {
         }
     }
 }
-impl RegsCode {
-    pub fn from(byte: u8) -> RegsCode {
+impl Reg {
+    pub fn from(byte: u8) -> Reg {
         unsafe {
             std::mem::transmute(byte & bits::make_mask::<u8>(REGCODE_BITS))
         }
