@@ -1,5 +1,7 @@
 
 use crate::bits;
+use crate::bits::BitScanner;
+
 #[repr(u8)]
 pub enum Opcode {
     Nop = 0,
@@ -71,7 +73,10 @@ pub struct DecodedOperation {
     arg2_constnat: Option<u16>,
 }
 const OPERATION_SIZE: usize = 2 + 2 + 2;
-
+const ARG_CONSTANT_SIZE: usize = 2;
+pub enum DecodeOperationError {
+    InvalidSize(usize)
+}
 impl Opcode {
     pub fn from(byte: u8) -> Opcode {
         unsafe {
@@ -94,9 +99,22 @@ impl RegsCode {
     }
 
 }
-impl From<[u8; OPERATION_SIZE]> for DecodedOperation {
-    fn from(u: [u8; OPERATION_SIZE]) -> DecodedOperation {
-        let opcode = Opcode::from(u[0]);
+impl From<&[u8]> for DecodedOperation {
+    fn from(bytes: &[u8]) -> Result<DecodedOperation, DecodeOperationError> {
+        let mut scanner = BitScanner::new(bytes);
+        let opcode = Opcode::from(scanner.collect_bits(OPCODE_BITS));
+        let args_format = OpLocationCode::from(scanner.collect_bits(OPLOCATION_BITS));
+        let output_reg = RegsCode::from(scanner.collect_bits(REGCODE_BITS));
+        let (arg1_c, arg2_c) = match args_format {
+            OpLocationCode::NoLocation => (None, None),
+            OpLocationCode::TwoConstants => (Some())
+            OpLocationCode::RawRegAndConstant => {},
+            OpLocationCode::ConstantAndRawReg => {},
+            OpLocationCode::TwoRawRegs => {},
+            OpLocationCode::LoadRegAndRawReg => {},
+            OpLocationCode::RawRegAndLoadReg => {},
+            OpLocationCode::TwoLoadRegs => {},
+        }
         DecodedOperation::default()
     }
 }
