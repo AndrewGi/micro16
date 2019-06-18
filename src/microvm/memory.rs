@@ -1,13 +1,15 @@
 use std;
 use std::ops::{Range, Add};
 use std::any::Any;
+#[derive(Debug, Clone)]
 pub enum MemoryError {
     OutOfBounds,
     InvalidAccess,
     ReadOnly,
     Overflow,
+    Overlap,
 }
-pub trait AddressType: ::num::Unsigned + Into<usize> + Clone + Ord + Sized +
+pub trait AddressType: ::num::Unsigned + Into<usize> + Clone + Ord + Sized + PartialEq + PartialOrd +
                 ::num::traits::FromPrimitive + ::num::traits::CheckedAdd + ::num::traits::CheckedSub {}
 impl AddressType for u16 {}
 pub trait AddressSpace<Address: AddressType>{
@@ -133,8 +135,38 @@ struct OffsetAddressSpaceMut<'a, Address: AddressType> {
     offset: Address,
     space: &'a mut dyn AddressSpace<Address>
 }
+impl<'a, Address: AddressType> OffsetAddressSpace<'a, Address> {
+    pub fn address_range(&self) -> Range<Address> {
+        Range { start: self.offset.clone(), end: self.offset.clone()+self.space.size() }
+    }
+    pub fn does_overlap(&self, other: &Self) -> bool {
+        false
+    }
+}
 impl<'a, Address: AddressType> SparseAddressSpace<Address> {
-    pub fn spaces_iter<'b>(&'b self) -> impl Iterator<Item=OffsetAddressSpace<'b, Address>>  {
+    pub fn new(size: Address) -> SparseAddressSpace<Address> {
+        SparseAddressSpace {
+            spaces: Vec::with_capacity(4),
+            size
+        }
+    }
+    pub fn add_space(&mut self, offset: Address, new_space: Box<dyn AddressSpace<Address>>) -> Result<(), MemoryError>  {
+        if offset.clone()+new_space.as_ref().size() > self.size {
+            return Err(MemoryError::Overflow)
+        }
+        let new_offset_space = OffsetAddressSpace {
+            offset: offset.clone(),
+            space: new_space.as_ref()
+        };
+        for space in self.spaces_iter() {
+            if space.does_overlap(&new_offset_space) {
+                return Err(MemoryError::Overlap)
+            }
+        }
+        self.spaces.push((offset, new_space));
+        Ok(())
+    }
+    pub fn spaces_iter(&self) -> impl Iterator<Item=OffsetAddressSpace<Address>>  {
         self.spaces.iter().map(|space| {
             OffsetAddressSpace { offset: (space.0).clone(), space:  (space.1).as_ref()}
         })
@@ -153,7 +185,7 @@ impl<'a, Address: AddressType> SparseAddressSpace<Address> {
         None
     }
     pub fn find_space_mut(&mut self, containing_address: Address) -> Option<OffsetAddressSpaceMut<Address>> {
-        for mut space in self.spaces_iter_mut() {
+        for space in self.spaces_iter_mut() {
             if (space.offset.clone()..space.offset.checked_add(&space.space.size()).unwrap_or(space.offset.clone())).contains(&containing_address) {
                 return Some(space);
             }
