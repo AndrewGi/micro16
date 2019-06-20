@@ -55,10 +55,10 @@ macro_rules! bit_impl {
                 std::mem::transmute::<*const $t, *const u8>(self)
             }
             fn set_bit(&mut self, bit: usize) {
-                *self |= (1 << bit) //todo: fix platform byte ordering maybe
+                *self |= 1 << bit
             }
             fn clear_bit(&mut self, bit: usize) {
-                *self &= !(1 << bit) //todo: fix platform byte ordering maybe
+                *self &= !(1 << bit)
             }
             fn get_bit(&self, bit: usize) -> bool {
                 ((self >> bit) & 1) == 1
@@ -71,7 +71,9 @@ pub struct BitVector {
     data: Vec<u8>,
     bit_length: usize,
 }
+impl BitVector {
 
+}
 pub struct BitScanner<'a> {
     flip_bits: bool,
     bytes: &'a [u8],
@@ -185,9 +187,10 @@ impl<'a> BitScanner<'a> {
         } else if self.is_aligned() {
             self.next_sub_byte_aligned(amount)
         } else {
-            let rest_count = (8-self.current_pos_in_byte());
-            let mut out = self.consume_bits_left_in_current_byte();
-            out |= self.next_sub_byte_aligned(amount-rest_count)? << rest_count;
+            //FIXME
+            let rest_count = 8-self.current_pos_in_byte();
+            let mut out: u8 = make_mask::<u8>(amount as usize) & (self.current_byte().unwrap() >> self.current_pos_in_byte());
+            out |= self.next_sub_byte_aligned(amount.checked_sub(rest_count).unwrap_or(0)).unwrap_or(0) << rest_count;
             Some(out)
         }
     }
@@ -240,14 +243,21 @@ mod tests {
     }
     #[test]
     fn test2() {
-        let x = 0xACACu16;
+        let x = 0xACACu16; //0b1010110010101100
         let mut scanner: BitScanner = (&x).into();
         assert_eq!(scanner.len(), 16);
         assert_eq!(scanner.bits_left(), 16);
         assert!(scanner.atleast_n_bits_left(16));
         assert_eq!(scanner.collect_bits::<u8>(4).unwrap(), 0xCu8);
-        assert_eq!(scanner.collect_bits::<u8>(4).unwrap(), 0xAu8);
+        assert_eq!(scanner.collect_bits::<u8>(3).unwrap(), 0x6u8);
+        assert_eq!(scanner.collect_bits::<u8>(4).unwrap(), 0x9u8);
         assert!(!scanner.is_done());
     }
-
+    #[test]
+    fn test3() {
+        assert_eq!(make_mask::<u8>(0), 0);
+        assert_eq!(make_mask::<u16>(4), 0b1111);
+        assert_eq!(make_mask::<u32>(7), 0b1111_111);
+        assert_eq!(make_mask::<u64>(11),0b1111_1111_111);
+    }
 }

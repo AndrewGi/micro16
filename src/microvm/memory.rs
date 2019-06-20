@@ -1,6 +1,5 @@
 use std;
-use std::ops::{Range, Add};
-use std::any::Any;
+use std::ops::{Range};
 #[derive(Debug, Clone)]
 pub enum MemoryError {
     OutOfBounds,
@@ -14,7 +13,7 @@ pub trait AddressType: ::num::Unsigned + Into<usize> + Clone + Ord + Sized + Par
 impl AddressType for u16 {}
 pub trait AddressSpace<Address: AddressType>{
     fn size(&self) -> Address;
-    fn get_view<'a>(&'a self, range: Range<Address>) -> Result<MemoryView<'a, Address>, MemoryError> where Self: Sized {
+    fn get_view(&self, range: Range<Address>) -> Result<MemoryView<Address>, MemoryError> where Self: Sized {
         get_memory_view(self, range)
     }
     fn read_bytes(&self, range: Range<Address>) -> Result<&[u8], MemoryError>;

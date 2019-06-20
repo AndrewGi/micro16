@@ -11,7 +11,7 @@ pub fn transmute_slice_mut<T: Copy>(slice: &mut [u8]) -> &mut T {
     assert!(slice.len() >= std::mem::size_of::<T>());
     unsafe { std::mem::transmute(slice.as_mut_ptr()) }
 }
-mod bits;
-mod assembler;
-mod asm_scanner;
-mod instructions;
+pub mod bits;
+pub mod assembler;
+pub mod asm_scanner;
+pub mod instructions;

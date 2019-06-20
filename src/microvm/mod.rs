@@ -1,2 +1,2 @@
-mod memory;
-mod vm;
+pub mod memory;
+pub mod vm;

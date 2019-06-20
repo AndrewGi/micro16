@@ -2,7 +2,7 @@ use super::bits;
 use std::fmt;
 /*
 1234567890123456
-ooooOOOTTTAAABBB
+ooooOOOLAAALBBBL
 if Reg == R1 on a constant, load from that memory locations
 
 
@@ -40,25 +40,15 @@ impl Default for Opcode {
         Opcode::Nop
     }
 }
-#[repr(u8)]
-pub enum OpArgsTypes {
-    NoLocation =      0b000,
-    TwoConstants     =0b001,
-    RawRegAndConstant=0b010,
-    ConstantAndRawReg=0b011,
-    TwoRawRegs       =0b100,
-    LoadRegAndRawReg =0b101,
-    RawRegAndLoadReg =0b110,
-    TwoLoadRegs      =0b111,
-
-}
 #[derive(Eq, PartialEq, Clone)]
-pub enum Arg {
-    Constant(u16),
+pub enum DecodedArg {
+    RawConstant(u16),
+    LoadConstant(u16),
     RawReg(Reg),
     LoadReg(Reg),
     None
 }
+
 impl fmt::Display for Arg {
 
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -70,33 +60,10 @@ impl fmt::Display for Arg {
         }
     }
 }
-impl OpArgsTypes {
-
-}
-impl ToString for OpArgsTypes {
-    fn to_string(&self) -> String {
-        match self {
-            OpArgsTypes::NoLocation => "__",
-            OpArgsTypes::TwoConstants => "cc",
-            OpArgsTypes::RawRegAndConstant => "rc",
-            OpArgsTypes::ConstantAndRawReg => "cr",
-            OpArgsTypes::TwoRawRegs => "rr",
-            OpArgsTypes::LoadRegAndRawReg => "lr",
-            OpArgsTypes::RawRegAndLoadReg => "rl",
-            OpArgsTypes::TwoLoadRegs => "ll",
-        }.to_string()
-    }
-}
-const OPARGSTYPE_BITS: usize = 3;
-impl Default for OpArgsTypes {
-    fn default() -> Self {
-        OpArgsTypes::NoLocation
-    }
-}
 #[repr(u8)]
 #[derive(Eq, PartialEq, Clone)]
 pub enum Reg {
-    NoReg = 0,
+    Constant = 0,
     R1 = 1,
     R2 = 2,
     R3 = 3,
@@ -110,35 +77,25 @@ impl fmt::Display for Reg {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}",
                 match self {
-                    Reg::NoReg => "_",
+                    Reg::Constant => "C",
                     Reg::R1 => "R1",
                     Reg::R2 => "R2",
                     Reg::R3 => "R3",
                     Reg::R4 => "R4",
                     Reg::SP => "SP",
                     Reg::IP => "IP",
-                    Reg::Flags => "FLAGS"
+                    Reg::Flags => "FL"
                 })
     }
 }
 
-impl Default for Reg {
-    fn default() -> Self {
-        Reg::NoReg
-    }
-}
-#[derive(Default)]
+
 pub struct DecodedOperation {
     opcode: Opcode,
-    args_format: OpArgsTypes,
-    output_reg: Reg,
-    reg1: Reg,
-    reg2: Reg,
-    arg1_constant: Option<u16>,
-    arg2_constant: Option<u16>,
+    output: DecodedArg,
+    arg1: DecodedArg,
+    arg2: DecodedArg
 }
-const OPERATION_SIZE: usize = 2 + 2 + 2;
-const ARG_CONSTANT_SIZE: usize = 2;
 pub enum DecodeOperationError {
     InvalidSize(usize),
     RanOutOfBytes,
@@ -150,13 +107,6 @@ impl Opcode {
         }
     }
 }
-impl OpArgsTypes {
-    pub fn from(byte: u8) -> OpArgsTypes {
-        unsafe {
-            std::mem::transmute(byte & bits::make_mask::<u8>(OPARGSTYPE_BITS))
-        }
-    }
-}
 impl Reg {
     pub fn from(byte: u8) -> Reg {
         unsafe {
@@ -164,6 +114,13 @@ impl Reg {
         }
     }
 
+}
+impl DecodedArg {
+    pub fn new(reg: Reg, do_load: bool, maybe_constant: Option<u16>) -> Result<DecodedArg, DecodedOperation> {
+        if reg == Reg::Constant {
+
+        }
+    }
 }
 impl std::convert::TryFrom<&[u8]> for DecodedOperation {
     type Error = DecodeOperationError;
@@ -175,9 +132,11 @@ impl std::convert::TryFrom<&[u8]> for DecodedOperation {
         let mut scanner = bits::BitScanner::new(bytes);
         let opcode = Opcode::from(scanner.collect_bits(OPCODE_BITS).ok_or(RanOutOfBytes)?);
         let output_reg = Reg::from(scanner.collect_bits(REGCODE_BITS).ok_or(RanOutOfBytes)?);
-        let args_format = OpArgsTypes::from(scanner.collect_bits(OPARGSTYPE_BITS).ok_or(RanOutOfBytes)?);
-        let reg1 = Reg::from(scanner.collect_bits(REGCODE_BITS).ok_or(RanOutOfBytes)?);
-        let reg2 = Reg::from(scanner.collect_bits(REGCODE_BITS).ok_or(RanOutOfBytes)?);
+        let load_output = scanner.next()?;
+        let arg1 = Reg::from(scanner.collect_bits(REGCODE_BITS).ok_or(RanOutOfBytes)?);
+        let load_reg1 = scanner.next()?;
+        let arg2 = Reg::from(scanner.collect_bits(REGCODE_BITS).ok_or(RanOutOfBytes)?);
+        let load_reg2 = scanner.next()?;
         assert!(scanner.is_byte_aligned(2), "decoded operation didn't align scanner to u16");
         let mut collect_u16 = || {scanner.collect_type::<u16>().ok_or(RanOutOfBytes)};
         let args_c = match args_format {

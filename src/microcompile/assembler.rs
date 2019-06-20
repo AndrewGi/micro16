@@ -1,9 +1,7 @@
 use crate::microcompile::instructions::{Arg, Reg, OpArgsTypes, Opcode};
 use std::collections::HashMap;
-use std::slice::Iter;
 use std::collections::vec_deque::VecDeque;
-use std::fmt;
-use std::convert::TryInto;
+type UInt = u16;
 pub enum AssemblerArg {
 	Arg(Arg),
 	Variable(String)
@@ -46,20 +44,33 @@ pub enum VarType {
 	U8,
 	U16,
 	I16,
+	Array(Box<VarType>, UInt),
 	Label
+}
+impl VarType {
+	pub fn size(&self) -> UInt {
+		match self {
+			VarType::I8 => 1,
+			VarType::U8 => 1,
+			VarType::U16 => 2,
+			VarType::I16 => 2,
+			VarType::Array(t, amount) => {t.as_ref().size() * *amount}, //todo: could overflow
+			VarType::Label => 0,
+		}
+	}
 }
 #[derive(Clone)]
 struct VarDeclaration {
 	name: String,
 	var_type: VarType,
-	address: u16
+	address: UInt
 }
 #[derive(Default)]
 struct Assembler {
 	lines: VecDeque<AssemblerLine>,
 	vars: HashMap<String, VarDeclaration>,
-	unknown_addresses: Vec<(String, u16)>,
-	pc: u16,
+	unknown_addresses: Vec<(String, UInt)>,
+	pc_offset: UInt,
 	out: Vec<u8>
 }
 enum AssemblerError {
@@ -68,11 +79,14 @@ enum AssemblerError {
 	PCOverflow
 }
 impl Assembler {
-	pub fn new(start_pc: u16) -> Assembler {
+	pub fn new(pc_offset: UInt) -> Assembler {
 		Assembler {
-			pc: start_pc,
+			pc_offset,
 			..Default::default()
 		}
+	}
+	pub fn pc(&self) -> UInt {
+		self.pc_offset + self.out.len() as UInt
 	}
 	fn next_line(&mut self) -> Option<AssemblerLine> {
 		self.lines.pop_front()
@@ -83,11 +97,9 @@ impl Assembler {
 	fn add_variable(&mut self, var_name: String, var_type: VarType) -> Result<(), AssemblerError> {
 		let var_dec = VarDeclaration {
 			name: var_name.to_string(),
-			var_type,
-			address: self.pc
+			var_type: var_type.clone(),
+			address: self.allocate(var_type.size())?
 		};
-		let high_pc: u8 = ((var_dec.address & 0xff00) >> 8).try_into().expect("should only be high_byte");
-		let low_pc: u8  = (var_dec.address & 0xff).try_into().expect("should only be low byte");
 		use std::collections::hash_map::*;
 		if let Entry::Vacant(e) = self.vars.entry(var_dec.name.clone()) {
 			e.insert(var_dec.clone());
@@ -96,7 +108,7 @@ impl Assembler {
 		};
 		for unknown in &self.unknown_addresses {
 			if unknown.0 == var_dec.name {
-				*crate::microcompile::transmute_slice_mut::<u16>(&mut self.out[unknown.1 as usize..]) = var_dec.address;
+				*crate::microcompile::transmute_slice_mut::<UInt>(&mut self.out[unknown.1 as usize..]) = var_dec.address;
 			}
 		}
 		self.unknown_addresses.retain(|u| u.0 != var_dec.name);
@@ -111,17 +123,20 @@ impl Assembler {
 	fn add_new_var(&mut self, name: String, var_type: String, data: String) -> Result<(), AssemblerError> {
 		unimplemented!()
 	}
-
+	fn allocate(&mut self, amount: UInt) -> Result<UInt, AssemblerError> {
+		amount.checked_add(self.out.len() as UInt).ok_or(AssemblerError::PCOverflow)?;
+		let pc = self.pc();
+		if amount != 0 {
+			self.out.resize(self.out.len() + amount as usize, 0);
+		}
+		Ok(pc)
+	}
 	fn process_line(&mut self, line: AssemblerLine) -> Result<(), AssemblerError> {
 		match line {
 			AssemblerLine::Label(label) => self.add_label(label),
 			AssemblerLine::Executable(executable) => self.process_executable(executable),
-			AssemblerLine::NewVar{name, var_type, data} => {self.add_new_var(name,var_type,data)}
+			AssemblerLine::NewVar{name, var_type, data} => self.add_new_var(name,var_type,data)
 		}
-	}
-	fn step_pc(&mut self, amount: u16) -> Result<(), AssemblerError> {
-		self.pc = self.pc.checked_add(amount).ok_or(AssemblerError::PCOverflow)?;
-		Ok(())
 	}
 	pub fn process_next(&mut self) -> Option<Result<(), AssemblerError>> {
 		let line = self.next_line()?;
