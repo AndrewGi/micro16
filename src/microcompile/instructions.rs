@@ -1,3 +1,4 @@
+/*
 use super::bits;
 use std::fmt;
 /*
@@ -158,3 +159,4 @@ impl std::convert::TryFrom<&[u8]> for DecodedOperation {
         })
     }
 }
+*/

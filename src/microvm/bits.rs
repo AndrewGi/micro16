@@ -1,10 +1,17 @@
-use std::ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Shl, Sub};
+use std::ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Shl, Sub, Shr};
 use std::convert::TryInto;
 
 pub fn make_mask<OutT>(size: usize) -> OutT where OutT: num::traits::One + Shl<usize, Output=OutT> + Sub<OutT, Output=OutT> {
     assert!(std::mem::size_of::<OutT>()*8 > size);
     (OutT::one() << size) - OutT::one()
 }
+pub fn extract_bits<T>(x: T, range: std::ops::Range<usize>) -> T
+    where T: BitAnd<Output=T> + num::traits::One + Shr<usize, Output=T> + Shl<usize, Output=T> + Sub<T, Output=T> {
+    assert!(std::mem::size_of::<T>()*8 > range.end);
+    (x >> range.start) & make_mask::<T>(range.end - range.start)
+
+}
+
 pub trait ShiftOps : std::ops::Shl + std::ops::ShlAssign + std::ops::Shr + std::ops::ShrAssign + Sized {
 
 }
@@ -16,16 +23,16 @@ pub trait Bits<'a>: Clone + BitOps + ShiftOps + Default {
     fn bit_len(&self) -> usize {
         self.byte_len()*8
     }
-    unsafe fn as_mut_bytes(&mut self) -> *mut u8;
-    unsafe fn as_bytes(&self) -> *const u8;
-    fn as_slice(&self) -> &'a [u8] {
+    unsafe fn as_mut_bytes_ptr(&mut self) -> *mut u8;
+    unsafe fn as_bytes_ptr(&self) -> *const u8;
+    fn as_bytes_slice(&self) -> &'a [u8] {
         unsafe {
-            std::slice::from_raw_parts(self.as_bytes(), self.byte_len())
+            std::slice::from_raw_parts(self.as_bytes_ptr(), self.byte_len())
         }
     }
-    fn as_mut_slice(&mut self) -> &mut [u8] {
+    fn as_mut_bytes_slice(&mut self) -> &mut [u8] {
         unsafe {
-            std::slice::from_raw_parts_mut(self.as_mut_bytes(), self.byte_len())
+            std::slice::from_raw_parts_mut(self.as_mut_bytes_ptr(), self.byte_len())
         }
     }
     fn set_bit(&mut self, bit: usize);
@@ -48,10 +55,10 @@ macro_rules! bit_impl {
             fn byte_len(&self) -> usize {
                 std::mem::size_of::<$t>()
             }
-            unsafe fn as_mut_bytes(&mut self) -> *mut u8 {
+            unsafe fn as_mut_bytes_ptr(&mut self) -> *mut u8 {
                 std::mem::transmute::<*mut $t, *mut u8>(self)
             }
-            unsafe fn as_bytes(&self) -> *const u8 {
+            unsafe fn as_bytes_ptr(&self) -> *const u8 {
                 std::mem::transmute::<*const $t, *const u8>(self)
             }
             fn set_bit(&mut self, bit: usize) {
@@ -224,7 +231,7 @@ impl<'a> BitScanner<'a> {
 }
 impl<'a, T> From<&'a T> for BitScanner<'a> where T: Bits<'a> {
     fn from(bits: &T) -> Self {
-        BitScanner::new(bits.as_slice())
+        BitScanner::new(bits.as_bytes_slice())
     }
 }
 #[cfg(test)]
