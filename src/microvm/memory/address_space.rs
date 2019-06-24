@@ -7,10 +7,7 @@ use std::cmp::Ordering;
 
 pub trait AddressSpace<Address: AddressType>{
     fn size(&self) -> Address;
-    fn read_bytes(&self, range: Range<Address>) -> Result<&[u8], MemoryError>;
-    fn read_byte(&self, address: Address) -> Result<u8, MemoryError> {
-        Ok(self.read_bytes(Range{start: address, end: address + Address::one()})?[0])
-    }
+    fn read_byte(&self, address: Address) -> Result<u8, MemoryError>;
     fn write_bytes(&mut self, addr: Address, _bytes: &[u8]) -> Result<(), MemoryError> {
         Err(MemoryError::ReadOnly)
     }
@@ -21,6 +18,7 @@ pub trait AddressSpace<Address: AddressType>{
         address < self.size()
     }
 }
+/*
 pub struct MemoryView<'a, Address: AddressType> {
     range: Range<Address>,
     parent: &'a dyn AddressSpace<Address>
@@ -33,19 +31,20 @@ impl<'a, Address: AddressType> AddressSpace<Address> for MemoryView<'a, Address>
     fn size(&self) -> Address {
         (self.range.end - self.range.start)
     }
-    fn read_bytes(&self, range: Range<Address>) -> Result<&[u8], MemoryError> {
-        self.parent.read_bytes(Range {end: self.range.start+range.end, ..range })
+    fn read_byte(&self, address: Address) -> Result<u8, MemoryError> {
+        self.parent.read_byte(self.range.start + address)
     }
     fn address_in_space(&self, address: Address) -> bool {
         self.range.contains(&address)
     }
 }
+
 impl<'a, Address: AddressType> AddressSpace<Address> for MemoryViewMut<'a, Address> {
     fn size(&self) -> Address {
         (self.range.end.clone() - self.range.start)
     }
 
-    fn read_bytes(&self, range: Range<Address>) -> Result<&[u8], MemoryError> {
+    fn read_byte(&self, address: Address) -> Result<u8, MemoryError> {
         if &self.range.start.checked_add(&range.end).ok_or(MemoryError::Overflow)? > &self.range.end {
             Err(MemoryError::OutOfBounds)
         } else {
@@ -60,7 +59,7 @@ impl<'a, Address: AddressType> AddressSpace<Address> for MemoryViewMut<'a, Addre
             self.parent.write_bytes(self.range.start+addr.clone(), bytes)
         }
     }
-}
+}*/
 
 pub struct DenseStaticMemory {
     data: Vec<u8>
@@ -84,9 +83,9 @@ impl<'a, Address: AddressType> AddressSpace<Address> for DenseStaticMemory {
         self.size()
     }
 
-    fn read_bytes(&self, range: Range<Address>) -> Result<&[u8], MemoryError> {
-        if range.end < self.size() {
-            Ok(&self.data[Range{start: range.start.into(), end:range.end.into()}])
+    fn read_byte(&self, address: Address) -> Result<u8, MemoryError> {
+        if self.address_in_space(address) {
+            Ok(self.data[address.into()])
         } else {
             Err(MemoryError::OutOfBounds)
         }

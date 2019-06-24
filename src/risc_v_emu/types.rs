@@ -27,7 +27,9 @@ macro_rules! data_type_impl {
                 self.0
             }
             fn store_signed(&mut self, i: Self::Signed) {
-                self.0 = std::mem::transmute::<Self::Signed, Self::Unsigned>(i);
+                unsafe {
+                    self.0 = std::mem::transmute::<Self::Signed, Self::Unsigned>(i);
+                }
             }
             fn store_unsigned(&mut self, i: Self::Unsigned) {
                 self.0 = i;

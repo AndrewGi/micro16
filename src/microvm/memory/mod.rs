@@ -11,3 +11,5 @@ pub enum MemoryError {
 pub mod address;
 pub mod address_space;
 pub mod sparse;
+pub mod zero;
+pub mod rom;

@@ -1,8 +1,8 @@
 pub struct Regs {
-    pc: u16,
-    sp: u8,
-    accumulator: u8,
-    x: u8,
-    y: u8,
-    flags: u8
+    pub pc: u16,
+    pub sp: u8,
+    pub accumulator: u8,
+    pub x: u8,
+    pub y: u8,
+    pub psr: super::flags::PSR,
 }

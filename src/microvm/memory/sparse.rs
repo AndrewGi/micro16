@@ -14,6 +14,21 @@ pub struct OffsetAddressSpace<Address, Space, SpaceStorage> where
     offset: Address,
     space: SpaceStorage
 }
+pub struct OffsetAddressSpaceMut<Address, Space, SpaceStorage> where
+    Address: AddressType,
+    Space: AddressSpace<Address> + ?Sized,
+    SpaceStorage: Deref<Target=Space> + DerefMut {
+    offset: Address,
+    space: SpaceStorage
+}
+impl<'a, Address, Space, SpaceStorage> OffsetAddressSpaceMut<Address, Space, SpaceStorage> where
+    Address: AddressType,
+    Space: AddressSpace<Address> + ?Sized,
+    SpaceStorage: Deref<Target=Space> + DerefMut {
+    pub fn as_ref(&self) -> OffsetAddressSpace<Address, Space, &Space> {
+        OffsetAddressSpace { offset: self.offset, space: &self.space.deref() }
+    }
+}
 impl<Address, Space, SpaceStorage> OffsetAddressSpace<Address, Space, SpaceStorage> where
     Address: AddressType,
     Space: AddressSpace<Address> + ?Sized,
@@ -27,12 +42,14 @@ impl<Address, Space, SpaceStorage> OffsetAddressSpace<Address, Space, SpaceStora
     pub fn relative_range(&self, range: Range<Address>) -> Result<Range<Address>, MemoryError> {
         match self.sub_offset(range) {
             Ok(r) => Ok(r),
-            Err(e) if e == MemoryError::Underflow => Err(MemoryError::OutOfBounds),
-            Err(e) => Err(e),
+            Err(e) => {
+                if e == MemoryError::Underflow {
+                    Err(MemoryError::OutOfBounds)
+                } else {
+                    Err(e)
+                }
+            },
         }
-    }
-    pub fn as_ref(&self) -> OffsetAddressSpace<Address, Space, &Space> {
-        OffsetAddressSpace { offset: self.offset, space: &self.space.deref() }
     }
     pub fn does_overlap<OSpaceStorage: Deref<Target=Space>>(&self, other: &OffsetAddressSpace<Address, Space, OSpaceStorage>) -> bool {
         let r1 = self.address_range();
@@ -40,25 +57,37 @@ impl<Address, Space, SpaceStorage> OffsetAddressSpace<Address, Space, SpaceStora
         r1.contains(&r2.start) || r1.contains(&r2.end) || r2.contains(&r1.start) || r2.contains(&r1.end)
     }
 }
-impl<Address, Space, SpaceStorage> AddressSpace<Address> for OffsetAddressSpace<Address, Space, SpaceStorage> where
+impl<Address, Space, SpaceStorage> AddressSpace<Address> for OffsetAddressSpaceMut<Address, Space, SpaceStorage> where
     Address: AddressType,
     Space: AddressSpace<Address> + ?Sized,
-    SpaceStorage: Deref<Target=Space> + DerefMut + AsRef<Space> {
+    SpaceStorage: Deref<Target=Space> + DerefMut {
     fn size(&self) -> Address {
         self.space.deref().size()
     }
-    fn read_bytes(&self, range: Range<Address>) -> Result<&[u8], MemoryError> {
-        self.space.read_bytes(self.relative_range(range)?)
+    fn read_byte(&self, address: Address) -> Result<u8, MemoryError> {
+        self.space.read_byte(self.offset.checked_add(&address).ok_or(MemoryError::Overflow)?)
     }
     fn write_bytes(&mut self, address: Address, bytes: &[u8]) -> Result<(), MemoryError> {
         self.space.deref_mut().write_bytes(address.checked_sub(&self.offset).ok_or(MemoryError::OutOfBounds)?, bytes)
     }
     fn address_in_space(&self, address: Address) -> bool {
+        self.as_ref().address_range().contains(&address)
+    }
+}
+impl<Address, Space, SpaceStorage> AddressSpace<Address> for OffsetAddressSpace<Address, Space, SpaceStorage> where
+    Address: AddressType,
+    Space: AddressSpace<Address> + ?Sized,
+    SpaceStorage: Deref<Target=Space> {
+    fn size(&self) -> Address {
+        self.space.deref().size()
+    }
+    fn read_byte(&self, address: Address) -> Result<u8, MemoryError> {
+        self.space.read_byte(self.offset.checked_add(&address).ok_or(MemoryError::Overflow)?)
+    }
+    fn address_in_space(&self, address: Address) -> bool {
         self.address_range().contains(&address)
     }
 }
-type DynOffsetAddressSpace<'a, Address> = OffsetAddressSpace<Address, dyn AddressSpace<Address>, &'a dyn AddressSpace<Address>>;
-type DynMutOffsetAddressSpace<'a, Address> = OffsetAddressSpace<Address, dyn AddressSpace<Address>, &'a mut dyn AddressSpace<Address>>;
 impl<'a, Address: AddressType> SparseAddressSpace< Address> {
     pub fn new(size: Address) -> SparseAddressSpace< Address> {
         SparseAddressSpace {
@@ -94,10 +123,6 @@ impl<'a, Address: AddressType> SparseAddressSpace< Address> {
             }
         })
     }
-    unsafe fn fix_static_lifetime<'b, 'c>(oa: OffsetAddressSpace<Address, dyn AddressSpace<Address>+'b, &'b dyn AddressSpace<Address>>)
-                                          -> OffsetAddressSpace<Address, dyn AddressSpace<Address>+'c, &'c dyn AddressSpace<Address>> {
-        std::mem::transmute(oa)
-    }
     pub fn find_space(&'a self, containing_address: Address) -> Option<OffsetAddressSpace<Address, dyn AddressSpace<Address>+'a, &'a dyn AddressSpace<Address>>> {
         let i = self.find_space_position(containing_address).ok()?;
         let oa = self.spaces.get(i)?;
@@ -109,12 +134,14 @@ impl<'a, Address: AddressType> SparseAddressSpace< Address> {
     pub fn find_space_mut(&'a mut self, containing_address: Address) -> Option<OffsetAddressSpace<Address, dyn AddressSpace<Address>+'a, &'a mut dyn AddressSpace<Address>>> {
         let i = self.find_space_position(containing_address).ok()?;
         let oa = self.spaces.get_mut(i)?;
-        let out = OffsetAddressSpace { offset: oa.offset, space: oa.space.deref_mut() };
+        let space = oa.space.deref_mut();
         //FIXME:
         // work around for https://github.com/rust-lang/rust/issues/53613
-        unsafe {
-            return Some(std::mem::transmute(out));
-        }
+        let fixxed_space: &mut dyn AddressSpace<Address> = unsafe {
+            std::mem::transmute(space)
+        };
+
+        Some(OffsetAddressSpace { offset: oa.offset, space: fixxed_space })
 
     }
 }
@@ -123,13 +150,8 @@ impl< Address: AddressType> AddressSpace<Address> for SparseAddressSpace< Addres
         self.size.clone()
     }
 
-    fn read_bytes(&self, range: Range<Address>) -> Result<&[u8], MemoryError> {
-        let space = self.find_space(range.start).ok_or(MemoryError::InvalidAccess)?;
-        if range.end.clone() > space.offset.checked_add(&space.space.size()).ok_or(MemoryError::Overflow)? {
-            Err(MemoryError::InvalidAccess)
-        } else {
-            space.space.read_bytes(range.start-space.offset..range.end.clone()-space.offset)
-        }
+    fn read_byte(&self, address: Address) -> Result<u8, MemoryError> {
+        self.find_space(address).ok_or(MemoryError::InvalidAccess)?.read_byte(address)
     }
     fn write_bytes(&mut self, address: Address, bytes: &[u8]) -> Result<(), MemoryError> {
         let space =  self.find_space_mut(address).ok_or(MemoryError::InvalidAccess)?;
